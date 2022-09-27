@@ -2,6 +2,7 @@
 The sematic_pipeline Bazel macro.
 """
 
+load("@com_github_ash2k_bazel_tools//multirun:def.bzl", "command", "multirun")
 load(
     "@io_bazel_rules_docker//python3:image.bzl",
     "py3_image",
@@ -10,7 +11,10 @@ load(
 load("@io_bazel_rules_docker//container:push.bzl", "container_push")
 load("@io_bazel_rules_docker//container:providers.bzl", "PushInfo")
 load("@io_bazel_rules_docker//container:pull.bzl", "container_pull")
+
 load("@rules_python//python:defs.bzl", "py_binary")
+
+
 
 def sematic_pipeline(
         name,
@@ -85,17 +89,19 @@ def sematic_pipeline(
         tags = ["manual"],
     )
 
-    container_push_at_build(
-        name = "{}_push_at_build".format(name),
-        container_push = ":{}_push".format(name),
-        tags = ["manual"],
+    native.genrule(
+        name = "{}_generate_image_uri".format(name),
+        srcs = [":{}_push.digest".format(name)],
+        outs = ["{}_push_at_build.uri".format(name)],
+        cmd = "echo -n {}/{}@`cat $(location {}_push.digest)` > $@".format(registry, repository, name),
     )
 
     py_binary(
-        name = name,
+        name = "{}_binary".format(name),
         srcs = ["{}.py".format(name)],
+        main = "{}.py".format(name),
         deps = deps,
-        data = [":{}_push_at_build".format(name)],
+        data = ["{}_generate_image_uri".format(name)],
         tags = ["manual"],
     )
 
@@ -107,54 +113,42 @@ def sematic_pipeline(
         deps = deps,
     )
 
-def _container_push_at_build(ctx):
-    marker = ctx.actions.declare_file("{0}.marker".format(ctx.label.name))
-    ctx.actions.run_shell(
-        command = "{} && touch {}".format(ctx.executable.container_push.path, marker.path),
-        tools = [ctx.executable.container_push],
-        outputs = [marker],
-        mnemonic = "ContainerImagePush",
-        use_default_shell_env = True,
-        execution_requirements = {"local": ""},
+    # Create the push binary in a command and set -- for args.
+    # This will ignore any args that come via cli with $@ such that
+    # the other binary in multirun can use it.
+    command(
+        name = "{}_push_command".format(name),
+        command = "{}_push".format(name),
+        arguments = ["--"],
     )
 
-    uri = ctx.actions.declare_file("{0}.uri".format(ctx.label.name))
-    ctx.actions.run_shell(
-        command = "echo -n $1/$2@$(cat $3) > $4",
-        arguments = [
-            ctx.actions.args().add_all([
-                ctx.attr.container_push[PushInfo].registry,
-                ctx.attr.container_push[PushInfo].repository,
-                ctx.attr.container_push[PushInfo].digest,
-                uri,
-            ]),
+    # Create the push binary in a command and set nothing for args.
+    # This will pass all args that come via cli with $@ to the binary.
+    command(
+        name = "{}_binary_command".format(name),
+        command = "{}_binary".format(name),
+        arguments = [],
+    )
+
+    # Create a multirun for the above two commands.
+    multirun(
+        name = "{}_multirun".format(name),
+        commands = [
+            ":{}_push_command".format(name),
+            ":{}_binary_command".format(name),
         ],
-        inputs = [ctx.attr.container_push[PushInfo].digest, marker],
-        outputs = [uri],
-        mnemonic = "PrintURI",
     )
 
-    runfiles = ctx.runfiles(files = [uri])
-    return [DefaultInfo(files = depset([uri]), runfiles = runfiles)]
-
-container_push_at_build = rule(
-    doc = """
-      container_push is an executable rule. Building it produces an executable which pushes the
-      image, but the executable is not run at build time. If you depend on a container_push target,
-      it will only get built, but not run. container_push_at_build takes the output executable from
-      container_push and runs it at build time.
-    """,
-    implementation = _container_push_at_build,
-    attrs = {
-        "container_push": attr.label(
-            mandatory = True,
-            providers = [PushInfo],
-            executable = True,
-            cfg = "host",
-        ),
-    },
-    _skylark_testable = True,
-)
+    # We wrap multirun back into a command because multirun binary also
+    # has an arg parser with -f as the argument, so if we directly pass
+    # the args to it, it will complain and fail. Instead we wrap it into
+    # a command with -- as args so that we ignore any args to multirun
+    # and instead they are passed on the correct binary.
+    command(
+        name = name,
+        command = "{}_multirun".format(name),
+        arguments = ["--"],
+    )
 
 def base_images():
     repositories()

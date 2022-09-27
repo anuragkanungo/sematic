@@ -1,5 +1,6 @@
 workspace(name = "sematic")
 
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 ## NEEDED FOR M1 MAC SUPPORT
@@ -144,6 +145,20 @@ load(
 )
 
 _py_image_repos()
+
+## MULTIRUN RULES
+
+
+git_repository(
+    name = "com_github_ash2k_bazel_tools",
+    commit = "8ec69576f63c254a089a63ebf7385e7ee1a871e9",
+    remote = "https://github.com/ash2k/bazel-tools.git",
+)
+
+load("@com_github_ash2k_bazel_tools//multirun:deps.bzl", "multirun_dependencies")
+
+multirun_dependencies()
+
 
 load("@sematic//bazel:pipeline.bzl", "base_images")
 
