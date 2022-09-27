@@ -11,7 +11,6 @@ load(
 load("@io_bazel_rules_docker//container:push.bzl", "container_push")
 load("@io_bazel_rules_docker//container:providers.bzl", "PushInfo")
 load("@io_bazel_rules_docker//container:pull.bzl", "container_pull")
-
 load("@rules_python//python:defs.bzl", "py_binary")
 
 
