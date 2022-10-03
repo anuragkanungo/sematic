@@ -145,7 +145,9 @@ def base_images():
 
 def _sematic_push_and_run(ctx):
     script = ctx.actions.declare_file("{0}.sh".format(ctx.label.name))
-    content_generators = [
+
+    # the script it simple enough it doesn't really merit a template & template expansion
+    script_lines = [
         "#!/bin/sh",
 
         # A common pattern is to have the bazel binary checked into the root of the
@@ -162,8 +164,8 @@ def _sematic_push_and_run(ctx):
         "fi",
     ]
     command = "touch {}".format(script.path)
-    for content_generator in content_generators:
-        command += " && echo '{}' >> {}".format(content_generator, script.path)
+    for script_line in script_lines:
+        command += " && echo '{}' >> {}".format(script_line, script.path)
     
     command = "{}".format(command)
     ctx.actions.run_shell(
