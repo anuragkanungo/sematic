@@ -1,8 +1,6 @@
 """
 The sematic_pipeline Bazel macro.
 """
-
-load("@com_github_ash2k_bazel_tools//multirun:def.bzl", "command", "multirun")
 load(
     "@io_bazel_rules_docker//python3:image.bzl",
     "py3_image",
@@ -112,42 +110,10 @@ def sematic_pipeline(
         deps = deps,
     )
 
-    # Create the push binary in a command and set -- for args.
-    # This will ignore any args that come via cli with $@ such that
-    # the other binary in multirun can use it.
-    command(
-        name = "{}_push_command".format(name),
-        command = "{}_push".format(name),
-        arguments = ["--"],
+    sematic_push_and_run(
+        name=name,
     )
 
-    # Create the push binary in a command and set nothing for args.
-    # This will pass all args that come via cli with $@ to the binary.
-    command(
-        name = "{}_binary_command".format(name),
-        command = "{}_binary".format(name),
-        arguments = [],
-    )
-
-    # Create a multirun for the above two commands.
-    multirun(
-        name = "{}_multirun".format(name),
-        commands = [
-            ":{}_push_command".format(name),
-            ":{}_binary_command".format(name),
-        ],
-    )
-
-    # We wrap multirun back into a command because multirun binary also
-    # has an arg parser with -f as the argument, so if we directly pass
-    # the args to it, it will complain and fail. Instead we wrap it into
-    # a command with -- as args so that we ignore any args to multirun
-    # and instead they are passed on the correct binary.
-    command(
-        name = name,
-        command = "{}_multirun".format(name),
-        arguments = ["--"],
-    )
 
 def base_images():
     repositories()
@@ -176,3 +142,51 @@ def base_images():
         repository = "sematicai/sematic-worker-base",
         tag = "cuda",
     )
+
+def _sematic_push_and_run(ctx):
+    script = ctx.actions.declare_file("{0}.sh".format(ctx.label.name))
+    content_generators = [
+        "#!/bin/sh",
+
+        # A common pattern is to have the bazel binary checked into the root of the
+        # workspace. If that's present, use it instead of whatever is on the PATH.
+        "test -f \"$BUILD_WORKSPACE_DIRECTORY/bazel\" && BAZEL_BIN=\"$BUILD_WORKSPACE_DIRECTORY/bazel\" || BAZEL_BIN=\"$(which bazel)\"",
+        "if test -f \"$BAZEL_BIN\"; then",
+        "\tcd $BUILD_WORKING_DIRECTORY",
+        "\t\"$BAZEL_BIN\" run {}_push".format(ctx.label),
+        "\t\"$BAZEL_BIN\" run {}_binary -- $@".format(ctx.label),
+        "else",
+        # Should probably not happen unless somebody has an exotic bazel setup.
+        # At least make it clear what the problem is if it ever does happen.
+        "\techo \"!!! bazel executable not found on PATH or in $BUILD_WORKSPACE_DIRECTORY !!!\"",
+        "fi",
+    ]
+    command = "touch {}".format(script.path)
+    for content_generator in content_generators:
+        command += " && echo '{}' >> {}".format(content_generator, script.path)
+    
+    command = "{}".format(command)
+    ctx.actions.run_shell(
+        command = command,
+        outputs = [script],
+        mnemonic = "GenerateScript",
+        use_default_shell_env = True,
+        execution_requirements = {"local": "", "no-sandbox": "1"},
+    )
+    runfiles = ctx.runfiles(files = [script])
+
+    return [DefaultInfo(files = depset([script]), runfiles = runfiles , executable=script)]
+
+sematic_push_and_run = rule(
+    doc = (
+        """This rule should never be used directly, it is for internal Sematic use.
+
+        It combines `bazel run //my_package:my_target_push` and
+        `bazel run //my_package:my_target_binary` into a single `bazel run`-able target.
+        """
+    ),
+    implementation = _sematic_push_and_run,
+    attrs = {},
+    executable = True,
+    _skylark_testable = True,
+)
