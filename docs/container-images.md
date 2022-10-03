@@ -112,11 +112,12 @@ With that, you're done! Assuming the target for your launch script was
 `//my_repo/my_package:my_target`, you now have the following targets available:
 
 - `//my_repo/my_package:my_target`: still runs your target, but builds and pushes
-a Docker image with your code and its dependencies first. Is essentially an alias
-for `bazel run //my_repo/my_package:my_target_push` followed by ``
-- `bazel run //my_repo/my_package:my_target_binary`: runs your target, building
-the image, but NOT pushing it. Generally this is only useful when combined with
-`bazel run //my_repo/my_package:my_target_push`.
+a Docker image with your code and its dependencies first. It's essentially an
+alias for `bazel run //my_repo/my_package:my_target_push` followed by
+`bazel run //my_repo/my_package:my_target_binary`.
+- `bazel run //my_repo/my_package:my_target_binary`: builds the image, does NOT
+push it, and executes your launch script. Generally this is only useful when
+combined with `bazel run //my_repo/my_package:my_target_push`.
 - `//my_repo/my_package:my_target_local`: runs your target WITHOUT building and
 pushing the image. This can help for local development when you don't want the
 overhead of waiting for the build & push. Differs from `:my_target_binary` in
